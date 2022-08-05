@@ -365,6 +365,10 @@ func main() {
 		if v.ChannelID == "" {
 			return
 		}
+		if v.BeforeUpdate != nil && v.BeforeUpdate.ChannelID != "" {
+			// user was already in a voice channel
+			return
+		}
 		log.Printf("%v joined voice channel %v", v.UserID, v.ChannelID)
 		// get user name
 		user, err := s.User(v.UserID)
