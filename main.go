@@ -36,6 +36,17 @@ type BestFriend struct {
 func init() { flag.Parse() }
 
 func init() {
+	if *BotToken == "" {
+		// get bot token from environment variable
+		*BotToken = os.Getenv("BOT_TOKEN")
+	}
+	if *GuildID == "" {
+		// get guild ID from environment variable
+		*GuildID = os.Getenv("GUILD_ID")
+	}
+}
+
+func init() {
 	var err error
 	s, err = discordgo.New("Bot " + *BotToken)
 	if err != nil {
