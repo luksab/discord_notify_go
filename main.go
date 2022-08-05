@@ -39,7 +39,7 @@ func init() {
 	var err error
 	s, err = discordgo.New("Bot " + *BotToken)
 	if err != nil {
-		log.Fatalf("Invalid bot parameters: %v", err)
+		log.Fatalln("Invalid bot parameters:", err)
 	}
 }
 
@@ -105,6 +105,10 @@ var (
 				},
 			},
 		},
+		{
+			Name:        "list",
+			Description: "List best friends",
+		},
 	}
 
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
@@ -149,9 +153,24 @@ var (
 					FriendUuid: opt.UserValue(nil).ID,
 				}
 				err := db.Create(bestFriend)
-				if err != nil {
-					log.Printf("Error creating best friend: %v", err)
-					s.ChannelMessageSend(i.ChannelID, "Error creating best friend")
+				if err.Error != nil {
+					log.Println("Error creating best friend:", err.Error.Error())
+					if err.Error.Error() == "constraint failed: UNIQUE constraint failed: best_friends.user_uuid, best_friends.friend_uuid (1555)" {
+						s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+							Type: discordgo.InteractionResponseChannelMessageWithSource,
+							Data: &discordgo.InteractionResponseData{
+								Content: "You already have that user in your best friends list.",
+							},
+						})
+					} else {
+						s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+							Type: discordgo.InteractionResponseChannelMessageWithSource,
+							Data: &discordgo.InteractionResponseData{
+								Content: "Error creating best friend",
+							},
+						})
+					}
+					return
 				}
 				bestFriendId = opt.UserValue(nil).ID
 			}
@@ -199,7 +218,7 @@ var (
 				}
 				err := db.Delete(bestFriend)
 				if err != nil {
-					log.Printf("Error removing best friend: %v", err)
+					log.Println("Error removing best friend:", err)
 					s.ChannelMessageSend(i.ChannelID, "Error removing best friend")
 				}
 				bestFriendId = opt.UserValue(nil).ID
@@ -212,6 +231,44 @@ var (
 						"Removed <@%s> from your best friends list",
 						bestFriendId,
 					),
+				},
+			})
+		},
+		"list": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			var userId string
+			if i.User != nil {
+				userId = i.User.ID
+			} else if i.Member != nil {
+				userId = i.Member.User.ID
+			} else {
+				log.Println("No user found???")
+			}
+			var bestFriends []*BestFriend
+			err := db.Find(&bestFriends, BestFriend{UserUuid: userId}).Error
+			if err != nil {
+				log.Println("Error getting best friends:", err)
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: fmt.Sprintf(
+							"Error getting best friends",
+						),
+					},
+				})
+				return
+			}
+			if len(bestFriends) == 0 {
+				s.ChannelMessageSend(i.ChannelID, "You have no best friends :(")
+				return
+			}
+			var bestFriendsString string = "Your best friends are:\n"
+			for _, bestFriend := range bestFriends {
+				bestFriendsString += fmt.Sprintf("<@%s>\n", bestFriend.FriendUuid)
+			}
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: bestFriendsString,
 				},
 			})
 		},
@@ -230,6 +287,7 @@ var db *gorm.DB
 
 func main() {
 	var err error
+
 	db, err = gorm.Open(sqlite.Open("database.db"), &gorm.Config{})
 	if err != nil {
 		panic("failed to connect database")
@@ -254,7 +312,7 @@ func main() {
 	})
 	err = s.Open()
 	if err != nil {
-		log.Fatalf("Cannot open the session: %v", err)
+		log.Fatalln("Cannot open the session:", err)
 	}
 
 	log.Println("Adding commands...")
