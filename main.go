@@ -57,13 +57,6 @@ func init() {
 var (
 	commands = []*discordgo.ApplicationCommand{
 		{
-			Name: "ping",
-			// All commands and options must have a description
-			// Commands/options without description will fail the registration
-			// of the command.
-			Description: "Basic command",
-		},
-		{
 			Name: "add",
 			// All commands and options must have a description
 			// Commands/options without description will fail the registration
@@ -194,10 +187,15 @@ var (
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
-					Content: fmt.Sprintf(
-						"Added <@%s> to your best friends list",
-						bestFriendId,
-					),
+					Embeds: []*discordgo.MessageEmbed{
+						{
+							Title: "Addded best friend",
+							Description: fmt.Sprintf(
+								"Added <@%s> to your best friends list.",
+								bestFriendId,
+							),
+						},
+					},
 				},
 			})
 		},
@@ -223,25 +221,45 @@ var (
 				} else {
 					log.Println("No user found???")
 				}
+				bestFriendId = opt.UserValue(nil).ID
 				bestFriend := &BestFriend{
 					UserUuid:   userId,
-					FriendUuid: opt.UserValue(nil).ID,
+					FriendUuid: bestFriendId,
 				}
 				err := db.Delete(bestFriend)
-				if err != nil {
-					log.Println("Error removing best friend:", err)
-					s.ChannelMessageSend(i.ChannelID, "Error removing best friend")
+				if err.Error != nil {
+					log.Println("Error removing best friend:", err.Error)
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionResponseData{
+							Content: "Error removing best friend",
+						},
+					})
+					return
 				}
-				bestFriendId = opt.UserValue(nil).ID
+				if err.RowsAffected == 0 {
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionResponseData{
+							Content: "You don't have that user in your best friends list.",
+						},
+					})
+					return
+				}
 			}
 
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
-					Content: fmt.Sprintf(
-						"Removed <@%s> from your best friends list",
-						bestFriendId,
-					),
+					Embeds: []*discordgo.MessageEmbed{
+						{
+							Title: "Removed best friend",
+							Description: fmt.Sprintf(
+								"Removed <@%s> from your best friends list :(",
+								bestFriendId,
+							),
+						},
+					},
 				},
 			})
 		},
@@ -269,7 +287,12 @@ var (
 				return
 			}
 			if len(bestFriends) == 0 {
-				s.ChannelMessageSend(i.ChannelID, "You have no best friends :(")
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "You don't have any best friends. :'(",
+					},
+				})
 				return
 			}
 			var bestFriendsString string = "Your best friends are:\n"
