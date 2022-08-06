@@ -377,13 +377,13 @@ func main() {
 			return
 		}
 		// get channel name
-		channel, err := s.Channel(v.ChannelID)
+		channel, err := s.State.Channel(v.ChannelID)
 		if err != nil {
 			log.Printf("failed to get channel: %v", err)
 			return
 		}
-		// get guild name
-		guild, err := s.Guild(channel.GuildID)
+		// get guild
+		guild, err := s.State.Guild(v.GuildID)
 		if err != nil {
 			log.Printf("failed to get guild: %v", err)
 			return
@@ -394,11 +394,20 @@ func main() {
 			log.Fatal(result.Error)
 		}
 		// send dm to best friends
+	outer:
 		for _, bestFriend := range bestFriends {
 			bestFriendUser, err := s.User(bestFriend.UserUuid)
 			if err != nil {
 				log.Printf("failed to get user: %v", err)
 				continue
+			}
+			// check if best friend is in a VC already
+			for _, guild := range s.State.Guilds {
+				for _, vs := range guild.VoiceStates {
+					if vs.UserID == bestFriendUser.ID {
+						continue outer
+					}
+				}
 			}
 			// create dm
 			dmChannel, err := s.UserChannelCreate(bestFriendUser.ID)
