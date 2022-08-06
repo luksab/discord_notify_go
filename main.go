@@ -57,162 +57,175 @@ func init() {
 var (
 	commands = []*discordgo.ApplicationCommand{
 		{
-			Name: "add",
-			// All commands and options must have a description
-			// Commands/options without description will fail the registration
-			// of the command.
-			Description: "Basic command",
-		},
-		{
-			Name:        "add",
-			Description: "Add a user to the best friends list",
+			Name:        "best_friend",
+			Description: "Modify your best friend list",
 			Options: []*discordgo.ApplicationCommandOption{
 				{
-					Type:        discordgo.ApplicationCommandOptionUser,
-					Name:        "user-option",
-					Description: "User",
-					Required:    true,
+					Name:        "add",
+					Description: "Add a user to the best friends list to get notified when they join VC",
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Options: []*discordgo.ApplicationCommandOption{
+						{
+							Type:        discordgo.ApplicationCommandOptionUser,
+							Name:        "user-option",
+							Description: "User",
+							Required:    true,
+						},
+					},
 				},
-				// {
-				// 	Type:        discordgo.ApplicationCommandOptionRole,
-				// 	Name:        "role-option",
-				// 	Description: "Role option",
-				// 	Required:    false,
-				// },
-
-				// Required options must be listed first since optional parameters
-				// always come after when they're used.
-				// The same concept applies to Discord's Slash-commands API
-
-				// {
-				// 	Type:        discordgo.ApplicationCommandOptionChannel,
-				// 	Name:        "channel-option",
-				// 	Description: "Channel option",
-				// 	// Channel type mask
-				// 	ChannelTypes: []discordgo.ChannelType{
-				// 		// discordgo.ChannelTypeGuildText,
-				// 		discordgo.ChannelTypeGuildVoice,
-				// 	},
-				// 	Required: false,
-				// },
-			},
-		},
-		{
-			Name:        "remove",
-			Description: "Remove a user from the best friends list",
-			Options: []*discordgo.ApplicationCommandOption{
 				{
-					Type:        discordgo.ApplicationCommandOptionUser,
-					Name:        "user-option",
-					Description: "User",
-					Required:    true,
+					Name:        "remove",
+					Description: "Remove a user from the best friends list",
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Options: []*discordgo.ApplicationCommandOption{
+						{
+							Type:        discordgo.ApplicationCommandOptionUser,
+							Name:        "user-option",
+							Description: "User",
+							Required:    true,
+						},
+					},
+				},
+				{
+					Name:        "list",
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Description: "List best friends",
 				},
 			},
-		},
-		{
-			Name:        "list",
-			Description: "List best friends",
 		},
 	}
 
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
-		"add": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		"best_friend": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			// Access options in the order provided by the user.
-			options := i.ApplicationCommandData().Options
+			global_options := i.ApplicationCommandData().Options
+			global_optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(global_options))
+			for _, opt := range global_options {
+				log.Println("option:", opt.Name, "type:", opt.Type, "value:", opt.Options)
+				global_optionMap[opt.Name] = opt
+			}
 
-			// Or convert the slice into a map
+			options := global_optionMap[global_options[0].Name].Options
 			optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
 			for _, opt := range options {
+				log.Println("option:", opt.Name, "type:", opt.Type, "value:", opt.Options)
 				optionMap[opt.Name] = opt
 			}
 
-			// Get the value from the option map.
-			// When the option exists, ok = true
-			// if option, ok := optionMap["string-option"]; ok {
-			// 	// Option values must be type asserted from interface{}.
-			// 	// Discordgo provides utility functions to make this simple.
-			// 	margs = append(margs, option.StringValue())
-			// 	msgformat += "> string-option: %s\n"
-			// }
+			// As you can see, names of subcommands (nested, top-level)
+			// and subcommand groups are provided through the arguments.
+			switch global_options[0].Name {
+			case "add":
+				var bestFriendId string
 
-			// if opt, ok := optionMap["channel-option"]; ok {
-			// 	margs = append(margs, opt.ChannelValue(nil).ID)
-			// 	msgformat += "> channel-option: <#%s>\n"
-			// }
-
-			var bestFriendId string
-
-			if opt, ok := optionMap["user-option"]; ok {
-				// get creator id
-				var userId string
-				if i.User != nil {
-					userId = i.User.ID
-				} else if i.Member != nil {
-					userId = i.Member.User.ID
-				} else {
-					log.Println("No user found???")
-				}
-				bestFriend := &BestFriend{
-					UserUuid:   userId,
-					FriendUuid: opt.UserValue(nil).ID,
-				}
-				err := db.Create(bestFriend)
-				if err.Error != nil {
-					log.Println("Error creating best friend:", err.Error.Error())
-					if err.Error.Error() == "constraint failed: UNIQUE constraint failed: best_friends.user_uuid, best_friends.friend_uuid (1555)" {
-						s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-							Type: discordgo.InteractionResponseChannelMessageWithSource,
-							Data: &discordgo.InteractionResponseData{
-								Content: "You already have that user in your best friends list.",
-							},
-						})
+				if opt, ok := optionMap["user-option"]; ok {
+					// get creator id
+					var userId string
+					if i.User != nil {
+						userId = i.User.ID
+					} else if i.Member != nil {
+						userId = i.Member.User.ID
 					} else {
-						s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-							Type: discordgo.InteractionResponseChannelMessageWithSource,
-							Data: &discordgo.InteractionResponseData{
-								Content: "Error creating best friend",
-							},
-						})
+						log.Println("No user found???")
 					}
-					return
+					bestFriend := &BestFriend{
+						UserUuid:   userId,
+						FriendUuid: opt.UserValue(nil).ID,
+					}
+
+					err := db.Create(bestFriend)
+					if err.Error != nil {
+						log.Println("Error creating best friend:", err.Error.Error())
+						if err.Error.Error() == "constraint failed: UNIQUE constraint failed: best_friends.user_uuid, best_friends.friend_uuid (1555)" {
+							var _ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+								Type: discordgo.InteractionResponseChannelMessageWithSource,
+								Data: &discordgo.InteractionResponseData{
+									Content: "You already have that user in your best friends list.",
+								},
+							})
+						} else {
+							var _ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+								Type: discordgo.InteractionResponseChannelMessageWithSource,
+								Data: &discordgo.InteractionResponseData{
+									Content: "Error creating best friend",
+								},
+							})
+						}
+						return
+					}
+					bestFriendId = opt.UserValue(nil).ID
 				}
-				bestFriendId = opt.UserValue(nil).ID
-			}
 
-			// if opt, ok := optionMap["role-option"]; ok {
-			// 	margs = append(margs, opt.RoleValue(nil, "").ID)
-			// 	msgformat += "> role-option: <@&%s>\n"
-			// }
-
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Embeds: []*discordgo.MessageEmbed{
-						{
-							Title: "Addded best friend",
-							Description: fmt.Sprintf(
-								"Added <@%s> to your best friends list.",
-								bestFriendId,
-							),
+				var _ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Embeds: []*discordgo.MessageEmbed{
+							{
+								Title: "Addded best friend",
+								Description: fmt.Sprintf(
+									"Added <@%s> to your best friends list.",
+									bestFriendId,
+								),
+							},
 						},
 					},
-				},
-			})
-		},
-		"remove": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-			// Access options in the order provided by the user.
-			options := i.ApplicationCommandData().Options
+				})
+			case "remove":
+				var bestFriendId string
 
-			// Or convert the slice into a map
-			optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
-			for _, opt := range options {
-				optionMap[opt.Name] = opt
-			}
+				if opt, ok := optionMap["user-option"]; ok {
+					// get creator id
+					var userId string
+					if i.User != nil {
+						userId = i.User.ID
+					} else if i.Member != nil {
+						userId = i.Member.User.ID
+					} else {
+						log.Println("No user found???")
+					}
+					bestFriendId = opt.UserValue(nil).ID
+					bestFriend := &BestFriend{
+						UserUuid:   userId,
+						FriendUuid: bestFriendId,
+					}
 
-			var bestFriendId string
+					err := db.Delete(bestFriend)
+					if err.Error != nil {
+						log.Println("Error removing best friend:", err.Error)
+						var _ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+							Type: discordgo.InteractionResponseChannelMessageWithSource,
+							Data: &discordgo.InteractionResponseData{
+								Content: "Error removing best friend",
+							},
+						})
+						return
+					}
+					if err.RowsAffected == 0 {
+						var _ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+							Type: discordgo.InteractionResponseChannelMessageWithSource,
+							Data: &discordgo.InteractionResponseData{
+								Content: "You don't have that user in your best friends list.",
+							},
+						})
+						return
+					}
+				}
 
-			if opt, ok := optionMap["user-option"]; ok {
-				// get creator id
+				var _ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Embeds: []*discordgo.MessageEmbed{
+							{
+								Title: "Removed best friend",
+								Description: fmt.Sprintf(
+									"Removed <@%s> from your best friends list :(",
+									bestFriendId,
+								),
+							},
+						},
+					},
+				})
+			case "list":
 				var userId string
 				if i.User != nil {
 					userId = i.User.ID
@@ -221,90 +234,39 @@ var (
 				} else {
 					log.Println("No user found???")
 				}
-				bestFriendId = opt.UserValue(nil).ID
-				bestFriend := &BestFriend{
-					UserUuid:   userId,
-					FriendUuid: bestFriendId,
-				}
-				err := db.Delete(bestFriend)
-				if err.Error != nil {
-					log.Println("Error removing best friend:", err.Error)
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-						Type: discordgo.InteractionResponseChannelMessageWithSource,
-						Data: &discordgo.InteractionResponseData{
-							Content: "Error removing best friend",
-						},
-					})
-					return
-				}
-				if err.RowsAffected == 0 {
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-						Type: discordgo.InteractionResponseChannelMessageWithSource,
-						Data: &discordgo.InteractionResponseData{
-							Content: "You don't have that user in your best friends list.",
-						},
-					})
-					return
-				}
-			}
 
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Embeds: []*discordgo.MessageEmbed{
-						{
-							Title: "Removed best friend",
-							Description: fmt.Sprintf(
-								"Removed <@%s> from your best friends list :(",
-								bestFriendId,
-							),
+				var bestFriends []*BestFriend
+				err := db.Find(&bestFriends, BestFriend{UserUuid: userId}).Error
+				if err != nil {
+					log.Println("Error getting best friends:", err)
+					var _ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionResponseData{
+							Content: "Error getting best friends",
 						},
-					},
-				},
-			})
-		},
-		"list": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-			var userId string
-			if i.User != nil {
-				userId = i.User.ID
-			} else if i.Member != nil {
-				userId = i.Member.User.ID
-			} else {
-				log.Println("No user found???")
-			}
-			var bestFriends []*BestFriend
-			err := db.Find(&bestFriends, BestFriend{UserUuid: userId}).Error
-			if err != nil {
-				log.Println("Error getting best friends:", err)
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					})
+					return
+				}
+				if len(bestFriends) == 0 {
+					var _ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionResponseData{
+							Content: "You don't have any best friends. :'(",
+						},
+					})
+					return
+				}
+				var bestFriendsString string = "Your best friends are:\n"
+				for _, bestFriend := range bestFriends {
+					bestFriendsString += fmt.Sprintf("<@%s>\n", bestFriend.FriendUuid)
+				}
+				var _ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionResponseData{
-						Content: fmt.Sprintf(
-							"Error getting best friends",
-						),
+						Content: bestFriendsString,
 					},
 				})
-				return
 			}
-			if len(bestFriends) == 0 {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionResponseData{
-						Content: "You don't have any best friends. :'(",
-					},
-				})
-				return
-			}
-			var bestFriendsString string = "Your best friends are:\n"
-			for _, bestFriend := range bestFriends {
-				bestFriendsString += fmt.Sprintf("<@%s>\n", bestFriend.FriendUuid)
-			}
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: bestFriendsString,
-				},
-			})
 		},
 	}
 )
