@@ -371,6 +371,17 @@ func main() {
 					}
 				}
 			}
+			// check that best friend is in the guild the user just joined
+			var bestFriendIsInGuild bool
+			for _, member := range guild.Members {
+				if member.User.ID == bestFriendUser.ID {
+					bestFriendIsInGuild = true
+					break
+				}
+			}
+			if !bestFriendIsInGuild {
+				continue
+			}
 			// create dm
 			dmChannel, err := s.UserChannelCreate(bestFriendUser.ID)
 			if err != nil {
