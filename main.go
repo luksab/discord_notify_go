@@ -264,7 +264,12 @@ var (
 				var _ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionResponseData{
-						Content: bestFriendsString,
+						Embeds: []*discordgo.MessageEmbed{
+							{
+								Title:       "Your best friends",
+								Description: bestFriendsString,
+							},
+						},
 					},
 				})
 			}
@@ -351,90 +356,77 @@ func main() {
 			log.Printf("failed to get guild: %v", err)
 			return
 		}
-		go func() {
-			time.Sleep(time.Second * 60)
-			// check again, if user is in the same VC, then send dm
-			var userIsInVC bool
-			newGuild, err := s.State.Guild(v.GuildID)
+		time.Sleep(time.Second * 60)
+		// check again, if user is in the same VC, then send dm
+		var userIsInVC bool
+		for _, member := range guild.VoiceStates {
+			if member.UserID == user.ID {
+				if member.ChannelID == v.ChannelID {
+					userIsInVC = true
+				}
+				break
+			}
+		}
+		if !userIsInVC {
+			return
+		}
+		log.Printf("%v is in voice channel %v", user.Username, channel.Name)
+
+		// get best friends
+		var bestFriends []BestFriend
+		if result := db.Find(&bestFriends, BestFriend{FriendUuid: v.UserID}); result.Error != nil {
+			log.Fatal(result.Error)
+		}
+		// send dm to best friends
+	outer:
+		for _, bestFriend := range bestFriends {
+			bestFriendUser, err := s.User(bestFriend.UserUuid)
 			if err != nil {
-				log.Printf("failed to get guild: %v", err)
+				log.Printf("failed to get user: %v", err)
+				continue
+			}
+			// check if best friend is in a VC already
+			for _, guild := range s.State.Guilds {
+				for _, vs := range guild.VoiceStates {
+					if vs.UserID == bestFriendUser.ID {
+						continue outer
+					}
+				}
+			}
+			_, err = s.GuildMember(guild.ID, bestFriendUser.ID)
+			if err != nil {
+				log.Printf("best friend %v is not in the guild %v", bestFriendUser.Username, guild.Name)
+				continue
+			}
+
+			// create dm
+			dmChannel, err := s.UserChannelCreate(bestFriendUser.ID)
+			if err != nil {
+				log.Printf("failed to create channel: %v", err)
 				return
 			}
-			for _, member := range newGuild.VoiceStates {
-				if member.UserID == user.ID {
-					if member.ChannelID == v.ChannelID {
-						userIsInVC = true
-					}
-					break
-				}
-			}
-			if !userIsInVC {
+			// get channel url
+			channelURL := fmt.Sprintf("https://discordapp.com/channels/%v/%v", guild.ID, channel.ID)
+			// send embed dm
+			msg, err := s.ChannelMessageSendEmbed(dmChannel.ID, &discordgo.MessageEmbed{
+				Title: guild.Name,
+				Description: fmt.Sprintf(
+					"%v joined %v",
+					user.Username,
+					channel.Name,
+				),
+				Author: &discordgo.MessageEmbedAuthor{
+					Name:    user.Username,
+					IconURL: user.AvatarURL(""),
+				},
+				URL: channelURL,
+			})
+			if err != nil {
+				log.Printf("failed to send message: %v", msg)
+				log.Printf("Because: %v", err)
 				return
 			}
-			log.Printf("%v is in voice channel %v", user.Username, channel.Name)
-
-			// get best friends
-			var bestFriends []BestFriend
-			if result := db.Find(&bestFriends, BestFriend{FriendUuid: v.UserID}); result.Error != nil {
-				log.Fatal(result.Error)
-			}
-			// send dm to best friends
-		outer:
-			for _, bestFriend := range bestFriends {
-				bestFriendUser, err := s.User(bestFriend.UserUuid)
-				if err != nil {
-					log.Printf("failed to get user: %v", err)
-					continue
-				}
-				// check if best friend is in a VC already
-				for _, guild := range s.State.Guilds {
-					for _, vs := range guild.VoiceStates {
-						if vs.UserID == bestFriendUser.ID {
-							continue outer
-						}
-					}
-				}
-				// check that best friend is in the guild the user just joined
-				var bestFriendIsInGuild bool
-				for _, member := range guild.Members {
-					if member.User.ID == bestFriendUser.ID {
-						bestFriendIsInGuild = true
-						break
-					}
-				}
-				if !bestFriendIsInGuild {
-					continue
-				}
-
-				// create dm
-				dmChannel, err := s.UserChannelCreate(bestFriendUser.ID)
-				if err != nil {
-					log.Printf("failed to create channel: %v", err)
-					return
-				}
-				// get channel url
-				channelURL := fmt.Sprintf("https://discordapp.com/channels/%v/%v", guild.ID, channel.ID)
-				// send embed dm
-				msg, err := s.ChannelMessageSendEmbed(dmChannel.ID, &discordgo.MessageEmbed{
-					Title: guild.Name,
-					Description: fmt.Sprintf(
-						"%v joined %v",
-						user.Username,
-						channel.Name,
-					),
-					Author: &discordgo.MessageEmbedAuthor{
-						Name:    user.Username,
-						IconURL: user.AvatarURL(""),
-					},
-					URL: channelURL,
-				})
-				if err != nil {
-					log.Printf("failed to send message: %v", msg)
-					log.Printf("Because: %v", err)
-					return
-				}
-			}
-		}()
+		}
 	})
 
 	defer s.Close()
